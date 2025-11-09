@@ -1,0 +1,186 @@
+name: Multi-Platform Matrix Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  matrix-build:
+    name: Build on ${{ matrix.os }} - Node ${{ matrix.node-version }}
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [18, 20]
+        include:
+          # Add specific configuration for Ubuntu 22.04 with Node 16
+          - os: ubuntu-22.04
+            node-version: 16
+            special: true
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      
+      - name: matrix-594d068
+        run: |
+          echo "Building for ${{ matrix.os }} with Node.js ${{ matrix.node-version }}"
+          echo "Matrix configuration: OS=${{ matrix.os }}, Node=${{ matrix.node-version }}"
+      
+      - name: Display system information
+        run: |
+          echo "Operating System: ${{ runner.os }}"
+          node --version
+          npm --version
+        shell: bash
+      
+      - name: Create build directory
+        run: mkdir -p build
+        shell: bash
+      
+      - name: Generate build artifact
+        run: |
+          cat > build/output.txt << 'EOF'
+          ====================================
+          Build Artifact Report
+          ====================================
+          Build Time: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          Operating System: ${{ matrix.os }}
+          Runner OS: ${{ runner.os }}
+          Node.js Version: ${{ matrix.node-version }}
+          Architecture: ${{ runner.arch }}
+          Job ID: ${{ github.job }}
+          Run ID: ${{ github.run_id }}
+          Run Number: ${{ github.run_number }}
+          ====================================
+          EOF
+          
+          # Add special marker for special builds
+          if [ "${{ matrix.special }}" == "true" ]; then
+            echo "Special Build: Yes" >> build/output.txt
+          fi
+          
+          # Display the content
+          cat build/output.txt
+        shell: bash
+      
+      - name: Generate build metadata JSON
+        run: |
+          cat > build/metadata.json << 'EOF'
+          {
+            "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "os": "${{ matrix.os }}",
+            "runner_os": "${{ runner.os }}",
+            "node_version": "${{ matrix.node-version }}",
+            "architecture": "${{ runner.arch }}",
+            "github": {
+              "repository": "${{ github.repository }}",
+              "ref": "${{ github.ref }}",
+              "sha": "${{ github.sha }}",
+              "run_id": "${{ github.run_id }}",
+              "run_number": ${{ github.run_number }}
+            }
+          }
+          EOF
+          
+          cat build/metadata.json
+        shell: bash
+      
+      - name: Create sample application
+        run: |
+          cat > build/app.js << 'EOF'
+          // Sample Node.js application
+          console.log('Multi-Platform Matrix Build Demo');
+          console.log('OS: ${{ matrix.os }}');
+          console.log('Node Version: ${{ matrix.node-version }}');
+          console.log('Build successful!');
+          EOF
+          
+          node build/app.js
+        shell: bash
+      
+      - name: Generate artifact name
+        id: artifact-name
+        run: |
+          OS_SHORT=$(echo "${{ matrix.os }}" | sed 's/-latest//' | sed 's/ubuntu/linux/' | sed 's/macos/mac/' | sed 's/windows/win/')
+          ARTIFACT_NAME="build-594d068-${OS_SHORT}-node${{ matrix.node-version }}"
+          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+          echo "Generated artifact name: ${ARTIFACT_NAME}"
+        shell: bash
+      
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: build/
+          retention-days: 7
+          if-no-files-found: error
+      
+      - name: Build summary
+        run: |
+          echo "✅ Build completed successfully for ${{ matrix.os }} with Node.js ${{ matrix.node-version }}"
+          echo "📦 Artifact uploaded: ${{ steps.artifact-name.outputs.name }}"
+        shell: bash
+
+  verify-artifacts:
+    name: Verify All Builds
+    needs: matrix-build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-builds
+      
+      - name: List all artifacts
+        run: |
+          echo "All build artifacts:"
+          ls -R all-builds/
+          
+          echo ""
+          echo "Artifact count:"
+          find all-builds -name "output.txt" | wc -l
+      
+      - name: Verify artifact contents
+        run: |
+          echo "Verifying artifact contents..."
+          for artifact in all-builds/*/output.txt; do
+            echo "========================================"
+            echo "Checking: $artifact"
+            cat "$artifact"
+            echo ""
+          done
+      
+      - name: Create verification report
+        run: |
+          cat > verification-report.txt << 'EOF'
+          ====================================
+          Multi-Platform Matrix Build Report
+          ====================================
+          Verification Time: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          All matrix builds completed successfully!
+          Artifacts generated and verified.
+          
+          Total artifacts: $(find all-builds -name "output.txt" | wc -l)
+          ====================================
+          EOF
+          
+          cat verification-report.txt
+      
+      - name: Upload verification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-594d068-verification-report
+          path: verification-report.txt
+          retention-days: 7
